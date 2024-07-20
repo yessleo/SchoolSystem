@@ -13,40 +13,32 @@ def current_year():
 def max_value_current_year(value):
     return MaxValueValidator(current_year())(value)
 
-def generate_username(rol, count):
-    user_typ = ""
-    if rol == "student":
-        user_typ = "ST"
-    elif rol == "docent":
-        user_typ = "DO"
-    elif rol == "staff":
-        user_typ = "AF"
-        
-    return f"{str(current_year())[2:]}-{user_typ}{str(count).zfill(4)}"
-
 class CustomUserManager(UserManager):
-    def _create_user(self, username = "", password = "", role = "",  **extra_fields):
-        if not username or role in ['student', 'staff', 'docent']:
-            username = generate_username(role, self.get_count_by_role(role))
-            
+    def _create_user(self, username = "", password = "", role = "",  **extra_fields):            
         user = self.model(username = username, role = role, **extra_fields)
         #password = make_password(password)
         user.set_password(password)
         user.save(using=self._db)
         return user
     
-    def create(self, username = "", password = "", role = "",  **extra_fields):
+    def create(self, status = "", username = "", password = "", role = "",  **extra_fields):
         if role == "admin":
             extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('is_active', True)
-        extra_fields.setdefault('status', 'activo')
+        if status == "activo":
+            extra_fields.setdefault('is_active', True)
+            extra_fields.setdefault('status', 'activo')
+        else:
+            extra_fields.setdefault('status', 'inactivo')
         return self._create_user(username, password, role, **extra_fields)
     
-    def create_superuser(self, username = "", password = "", role = "admin",  **extra_fields):
+    def create_superuser(self, status= "",username = "", password = "", role = "admin",  **extra_fields):
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_active', True)
-        extra_fields.setdefault('status', 'activo')
+        if status == "activo":
+            extra_fields.setdefault('is_active', True)
+            extra_fields.setdefault('status', 'activo')
+        else:
+            extra_fields.setdefault('status', 'inactivo')
         return self._create_user(username, password, role, **extra_fields)
     
     def get_count_by_role(self, rol="staff"):
@@ -120,6 +112,9 @@ class Clase(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     
+    def __str__(self) -> str:
+        return self.nombre
+    
 
 class Docentes(models.Model):
     class Meta:
@@ -143,7 +138,7 @@ class Docentes(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self) -> str:
-        return self.user.username
+        return f'{self.nombres} {self.apellidos}'
 
 class Materias(models.Model):
     class Meta:
@@ -179,28 +174,16 @@ class Estudiantes(models.Model):
         ("F", "Femenino"),
     )
     genero = models.CharField(choices=gender_choice, max_length=10)
+    periodo_escolar =  models.PositiveIntegerField(default=current_year(), validators=[MinValueValidator(1984), max_value_current_year])
     clase = models.ForeignKey(Grado,on_delete=models.DO_NOTHING, null=False, related_name='estudiantes_asignados')
+    guardian_nombres = models.CharField(max_length=255, default= "")
+    guardian_apellidos = models.CharField(max_length=255, default= "")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self) -> str:
         return self.user.username
 
-
-
-class Matriculas(models.Model):
-    class Meta:
-        db_table = 'Matriculas'
-        
-    id=models.AutoField(primary_key=True)
-    periodo_escolar =  models.PositiveIntegerField(default=current_year(), validators=[MinValueValidator(1984), max_value_current_year])
-    estudiante = models.OneToOneField(Estudiantes, on_delete=models.CASCADE, null=False)
-    guardian_nombres = models.CharField(max_length=255)
-    guardian_apellidos = models.CharField(max_length=255)
-    contacto = PhoneNumberField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
     
 class Notas(models.Model):
     class Meta:
@@ -209,12 +192,12 @@ class Notas(models.Model):
     materia = models.ForeignKey(Materias,on_delete=models.CASCADE, related_name='notas')
     estudiante=models.ForeignKey(Estudiantes,on_delete=models.CASCADE, related_name='estudiante_notas')
     p_parcial = models.IntegerField(default=0) 
-    s_parcial = models.IntegerField(default=0) 
-    final_primer_semestre = models.IntegerField(default=0) 
-    t_parcial = models.IntegerField(default=0) 
-    c_parcial = models.IntegerField(default=0) 
-    final_segundo_semestre = models.IntegerField(default=0)
-    nota_final =  models.IntegerField(default=0) 
+    s_parcial = models.IntegerField(default=0, null= True) 
+    final_primer_semestre = models.IntegerField(default=0, null= True)
+    t_parcial = models.IntegerField(default=0, null= True)
+    c_parcial = models.IntegerField(default=0, null= True)
+    final_segundo_semestre = models.IntegerField(default=0, null= True)
+    nota_final =  models.IntegerField(default=0, null= True)
     periodo_escolar =  models.PositiveIntegerField(default=current_year(), validators=[MinValueValidator(1984), max_value_current_year])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

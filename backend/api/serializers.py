@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import User, Estudiantes, Docentes, Clase, Grado, \
-    Nivel, Materias, Matriculas
+    Nivel, Materias, Notas
 from django.contrib.auth import authenticate
 from rest_framework.exceptions import AuthenticationFailed
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
@@ -13,39 +13,25 @@ from rest_framework_simplejwt.tokens import RefreshToken, Token
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 
-    
-class LoginSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(write_only=True)
-    password = serializers.CharField(max_length = 32 ,write_only=True)
-    full_name = serializers.CharField(max_length = 255 ,read_only=True)
-    access_token = serializers.CharField(max_length = 255 ,read_only=True)
-    refresh_token = serializers.CharField(max_length = 255 ,read_only=True)
-    
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        # Add custom claims
+        token['id'] = user.id
+        token['username'] = user.username
+        token['email'] = user.email
+        # ...
+        print(token)
+        return token 
+
+class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['username', 'password', 'full_name', 'access_token', 'refresh_token']
-        
-    def validate(self, attrs):
-        username = attrs.get('username')
-        password = attrs.get('password')
-        request = self.context.get('request')
-        user = authenticate(request, username = username, password = password)
-        if not user:
-            raise AuthenticationFailed("credenciales invalidas, intente de nuevo")
-        
-        user_tokens  = user.tokens()
- 
-        return {
-            'username': user.get_username,
-            'email': user.email,
-            'full_name': user.get_full_name,
-            'role': user.role,
-            'access_token': str(user_tokens.get('access')),
-            'refresh_token': str(user_tokens.get('refresh'))
-        }
-    
-
-        
+        fields = ('id', 'username', 'email', 'role', 'status', 'created_at')     
     
     
 class PasswordResetRequestSerializer(serializers.Serializer):
@@ -113,7 +99,7 @@ class LogoutUserSerializer(serializers.Serializer):
         'bad_token': ('Token es invalido o ha expirado')
     }
     def validate(self, attrs):
-        self.token = attrs.get('refresh_token')
+        self.token = attrs.get('refresh')
         return attrs
     
     def save(self, **kwargs):
@@ -129,20 +115,35 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ('id', 'username', 'role', 'status', 'created_at')
         extra_kwargs = {'id': {'read_only': True}, 'created_at': {'read_only': True}}
         
+        
+class UserUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('status', 'username', 'role')
+        
+    def validate_username(self, value):
+        user = self.context['request'].data
+        print(user)
+        if User.objects.exclude(pk=user["pk"]).filter(username=value).exists():
+            raise serializers.ValidationError({"username": "This username is already in use."})
+        return value
+
+    def update(self, instance, validated_data):
+        instance.status = validated_data['status']
+        instance.role = validated_data['role']
+        instance.username = validated_data['username']
+        instance.save()
+        return instance
+
+        
+        
 class UserCreationSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'username', 'password', 'role')
+        fields = ('id', 'status', 'username', 'password', 'role')
         extra_kwargs = {'id': {'read_only': True}}
         
         
-    def validate(self, attrs):
-        if attrs['role'] == "admin":
-            username_exists = User.objects.filter(username = attrs['username']).exists()
-            if username_exists:
-                raise serializers.ValidationError(detail = "Existe un user con ese username")
-        return super().validate(attrs)
-    
     def create(self,validated_data):
         #user = User(**validated_data)
         user = User.objects.create(**validated_data)
@@ -150,17 +151,16 @@ class UserCreationSerializer(serializers.ModelSerializer):
         #user.save()
         return user
     
-    # def update(self, instance, validated_data):
-    #     update_user = super().update(instance, validated_data)
-    #     update_user.set_password(validated_data['password'])
-    #     update_user.save()
-    #     return update_user
-
-
+class ChangePasswordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('password',)
         
-  
-     
-    
+    def update(self, instance, validated_data):
+        instance.set_password(validated_data['password'])
+        instance.save()
+
+        return instance
     
 class DocentesSerializer(serializers.ModelSerializer):
     user = UserSerializer()
@@ -172,10 +172,23 @@ class DocentesSerializer(serializers.ModelSerializer):
         user_data = validated_data.get("user")
         validated_data.pop('user')
         user = User.objects.create(**user_data)
-        docente = Docentes.objects.create(**validated_data, user = user)
-        return docente
-            
+        student = Docentes.objects.create(**validated_data, user = user)
+        return student
+class ClaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Clase
+        fields = '__all__'
         
+    def to_representation(self, instance):
+        return {
+            'id': instance.id,
+            'nombre': instance.nombre,
+            'id_grado': instance.grado.id,
+            'grado': instance.grado.nombre,
+            'periodo_escolar': instance.periodo_escolar,
+            'created_at': instance.created_at
+        }
+         
 class EstudiantesSerializer(serializers.ModelSerializer):
     user = UserSerializer()
     class Meta:
@@ -188,24 +201,68 @@ class EstudiantesSerializer(serializers.ModelSerializer):
         user = User.objects.create(**user_data)
         student = Estudiantes.objects.create(**validated_data, user = user)
         return student
-        
-
-class ClaseSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Clase
-        fields = '__all__'
-        
-    def to_representation(self, instance):
-        return {
-            'id': instance.id,
-            'nombre': instance.nombre,
-            'grado': instance.grado.nombre,
-            'periodo_escolar': instance.periodo_escolar
-        }
-
-
+    
 class GradoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Grado
+        fields = '__all__'      
+
+
+
+class GradoWithClasesSerializer(serializers.ModelSerializer):
     clases = ClaseSerializer(many = True)
     class Meta:
         model = Grado
         fields = '__all__'  
+        
+        
+class MateriasSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Materias
+        fields = '__all__'  
+        
+    def to_representation(self, instance):
+        return {
+            'id': instance.id,
+            'name': instance.name,
+            'id_clase': instance.clase.id,
+            'clase': instance.clase.nombre,
+            'grado': instance.clase.grado.nombre,
+            'id_docente': instance.docent.id,
+            'docente_nombres': instance.docent.nombres,
+            'docente_apellidos': instance.docent.apellidos,            
+            'created_at': instance.created_at
+        }
+        
+        
+class MateriasByClasesSerializer(serializers.ModelSerializer):
+    materias = MateriasSerializer(many = True, read_only = True)
+    class Meta:
+        model = Clase
+        fields  = ("name", "periodo_escolar", "materias")
+        
+        
+class NotasSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notas
+        fields = '__all__'  
+        
+    def to_representation(self, instance):
+        return {
+            'id': instance.id,
+            'id_materia': instance.materia.id,
+            'materia': instance.materia.name,
+            'id_student': instance.estudiante.id,
+            'student_nombres': instance.estudiante.nombres,
+            'student_apellidos': instance.estudiante.apellidos,   
+            'p_parcial': instance.p_parcial,
+            's_parcial': instance.s_parcial,
+            'final_primer_semestre': instance.final_primer_semestre,
+            't_parcial': instance.t_parcial,            
+            'c_parcial': instance.c_parcial,     
+            'final_segundo_semestre': instance.final_segundo_semestre,  
+            'nota_final': instance.nota_final,      
+            'periodo_escolar': instance.periodo_escolar,
+            'created_at': instance.created_at
+        }
+        

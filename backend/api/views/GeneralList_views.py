@@ -1,6 +1,6 @@
 from rest_framework import generics
-from ..serializers import GradoSerializer, ClaseSerializer
-from ..models import Grado, Clase
+from ..serializers import GradoSerializer, ClaseSerializer, MateriasSerializer, NotasSerializer
+from ..models import Grado, Clase, Materias
 
 
 class GeneralListApiView(generics.ListAPIView):
@@ -9,12 +9,18 @@ class GeneralListApiView(generics.ListAPIView):
         model = self.get_serializer().Meta.model
         return model.objects.filter()
     
-    
-class ClaseListAPIView(GeneralListApiView):
-    serializer_class = GradoSerializer
-
+class ClasesListAPIView(GeneralListApiView):
+    serializer_class = ClaseSerializer
     
 class GradosListAPIView(GeneralListApiView):
     serializer_class = GradoSerializer
+    
+class MateriasListAPIView(GeneralListApiView):
+    serializer_class = MateriasSerializer
+    
+class NotasListAPIView(GeneralListApiView):
+    serializer_class = NotasSerializer
+
+
 
 
